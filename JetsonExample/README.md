@@ -1,41 +1,356 @@
-## Running VEX AI Example Programs on Jetson/Raspberry Pi
-**How it works and how to use them together.**
+# JetsonExample - Core Vision Processing System
 
-Make sure you are using a **VEXAI** SD card image or have built from source following all steps in the JetsonImages folder.
+This directory contains the core Python application that runs on the NVIDIA Jetson Nano or Raspberry Pi 5 to perform real-time AI vision processing for the VEX AI Competition. The system captures camera frames, runs AI inference to detect game objects, processes depth data to determine 3D positions, and communicates detection data to both the VEX V5 Brain and the web dashboard.
 
-**Upon start up, your device (if installed with the correct image) will automatically run `pushback.py` in the background. If you wish to stop it from running in the background, open a terminal and enter: `sudo systemctl stop vexai`. This will stop this session of the service but if you restart your device, it will restart the code in the background again. 
+## Overview
 
-**Make sure all of your files are in the same folder.** This folder should include: `common.py, data_processing.py, labels.txt, model.py, model_backend.py pushback.py, requirements.txt, V5Comm.py, V5MapPosition.py, V5Position.py, V5Web.py`.
+The JetsonExample system orchestrates multiple components to create a complete vision processing pipeline:
 
-The primary Python program that runs is `pushback.py`, it ties together all of the helper classes to run inference and return object information from the Intel RealSense camera.
+1. **Camera Capture**: Intel RealSense D435 depth camera captures synchronized RGB and depth frames
+2. **Image Processing**: Color correction and preprocessing for AI inference
+3. **AI Inference**: YOLOv3-based neural network detects game objects (red and blue balls)
+4. **3D Mapping**: Converts 2D detections to 3D field coordinates using depth data
+5. **Position Tracking**: Integrates V5 GPS sensor data for robot localization
+6. **Data Communication**: Sends detection data to V5 Brain via serial and web dashboard via WebSocket
 
-To manually start the program, use the terminal in the root directory containing `pushback.py` and run: 
+## Prerequisites
 
-`python3 pushback.py`
+Before running the JetsonExample code, ensure you have:
 
-In the MainApp class, this will instantiate the Intel RealSense pipeline that handles camera input in the Camera class. We take in the camera resolution for depth and color as 640x480, at 30 fps. 
+- **Hardware Platform**: NVIDIA Jetson Nano or Raspberry Pi 5 with SD card image installed (see [JetsonImages](../JetsonImages/README.md))
+- **Intel RealSense D435 Camera**: Connected via USB 3.0
+- **VEX V5 Brain** (optional, for serial communication): Connected via USB
+- **VEX GPS Sensor** (optional, for position tracking): Connected to V5 Brain
 
-Next, there are 4 more classes that are instantiated, the v5 object is a V5SerialComms class from V5Comm.py that handles serial communicaton to the V5 Brain. The v5Map object uses the MapPosition class to process the inferred objects from the 2D camera image into a projection onto 3D space to return the location of each object on the field. The v5Pos object is a v5GPS class from v5Position.py that handles serial communication to the GPS Sesnor. v5Web is the websocket server that the web dashboard communicates to, this object handles the get requests for the camera, depth, and object data, in addition to setting the offsets for the GPS and Intel RealSense camera for the device.
+If you built from source instead of using a pre-built image, ensure all dependencies are installed (see build instructions in JetsonImages directory).
+
+## Running the System
+
+### Automatic Start (Pre-built Images)
+
+If you're using a pre-built SD card image, the system automatically runs `pushback.py` as a systemd service (`vexai`) on boot.
+
+**Service Management Commands:**
+- Check status: `sudo systemctl status vexai`
+- Start service: `sudo systemctl start vexai`
+- Stop service: `sudo systemctl stop vexai`
+- Restart service: `sudo systemctl restart vexai`
+- Disable auto-start: `sudo systemctl disable vexai`
+- Enable auto-start: `sudo systemctl enable vexai`
+
+> [!NOTE]
+> Stopping the service only stops it for the current session. If auto-start is enabled, the service will restart automatically on the next boot.
+
+### Manual Start
+
+To run the system manually for development or debugging:
+
+1. **Navigate to the JetsonExample directory**:
+   ```bash
+   cd ~/VAIC_25_26/JetsonExample
+   ```
+
+2. **Ensure all required files are present**:
+   The directory should contain: `pushback.py`, `model.py`, `model_backend.py`, `data_processing.py`, `common.py`, `V5Comm.py`, `V5Position.py`, `V5MapPosition.py`, `V5Web.py`, `filter.py`, `labels.txt`, and the `models/` directory with model files.
+
+3. **Run the main application**:
+   ```bash
+   python3 pushback.py
+   ```
+
+The system will start initializing components, and once ready, begin processing camera frames and detecting objects.
+
+## System Architecture
+
+The application is organized into several key components, each with a specific responsibility:
+
+### Main Application (`pushback.py`)
+
+The entry point of the system. Contains four main classes:
+
+#### `Camera` Class
+- **Purpose**: Manages Intel RealSense camera pipeline
+- **Configuration**: Captures depth and color streams at 640x480 resolution, 30 FPS
+- **Methods**:
+  - `start()`: Initializes and starts the camera pipeline
+  - `get_frames()`: Retrieves synchronized depth and color frames
+  - `stop()`: Stops the camera pipeline
+
+#### `Processing` Class
+- **Purpose**: Handles image processing, AI inference, and depth processing
+- **Features**:
+  - HSV color correction (hue, saturation, value adjustment)
+  - Depth-to-color frame alignment
+  - AI model inference via the `Model` class
+  - Depth extraction for detected objects
+  - 3D coordinate computation
+- **Key Methods**:
+  - `process_frames()`: Aligns depth to color frames
+  - `detect_objects()`: Runs AI inference on color-corrected image
+  - `compute_detections()`: Processes detections to create 3D field coordinates
+  - `updateHSV()`: Updates color correction values (called by web dashboard)
+
+#### `Rendering` Class
+- **Purpose**: Manages data flow to the web dashboard
+- **Methods**:
+  - `set_images()`: Updates camera and depth images for web dashboard
+  - `set_detection_data()`: Updates detection data for web dashboard
+  - `set_stats()`: Updates system statistics (FPS, temperature, etc.)
+
+#### `MainApp` Class
+- **Purpose**: Orchestrates all components and runs the main processing loop
+- **Initialization**: Creates and starts Camera, Processing, V5SerialComms, MapPosition, V5GPS, and V5WebData instances
+- **Main Loop**: Continuously captures frames, processes detections, and updates all communication channels
+
+### AI Model Processing (`model.py`, `model_backend.py`, `data_processing.py`)
+
+#### `Model` Class (`model.py`)
+- **Purpose**: High-level interface for AI inference
+- **Neural Network**: Based on YOLOv3 architecture (see [YOLOv3 Paper](https://arxiv.org/pdf/1804.02767.pdf))
+- **Input Resolution**: 320x320 pixels
+- **Backend Selection**: Automatically detects and uses CUDA (Jetson) or Coral Edge TPU (Raspberry Pi)
+- **Output**: Bounding boxes, class IDs, and confidence scores for detected objects
+
+#### `CUDABackend` and `CoralBackend` Classes (`model_backend.py`)
+- **Purpose**: Platform-specific AI inference backends
+- **CUDABackend**: Uses TensorRT for Jetson Nano (loads `pushback_lite.onnx`, generates `.trt` engine)
+- **CoralBackend**: Uses PyCoral for Raspberry Pi 5 (loads `pushback_lite.tflite`)
+- **Automatic Detection**: The system automatically selects the appropriate backend based on available hardware
+
+#### `PreprocessYOLO` and `PostprocessYOLO` Classes (`data_processing.py`)
+- **Purpose**: YOLOv3-specific preprocessing and post-processing
+- **Preprocessing**: Resizes input images to 320x320, normalizes pixel values
+- **Post-processing**: Non-maximum suppression (NMS), bounding box decoding, confidence filtering
+- **Source**: Based on NVIDIA's YOLOv3 sample code (`common.py`)
+
+### V5 Communication (`V5Comm.py`)
+
+Handles serial communication between the Jetson/Raspberry Pi and VEX V5 Brain.
+
+#### `V5SerialComms` Class
+- **Purpose**: Binary protocol implementation for sending detection data to V5 Brain
+- **Communication**: USB serial connection (115200 baud)
+- **Protocol**: Custom binary format with packet header (sync bytes, length, type, CRC32) and payload
+- **Threading**: Runs in separate thread, responds to V5 Brain requests
+- **Data Structures**:
+  - `Detection`: Individual object detection (class ID, probability, depth, screen location, map location)
+  - `AIRecord`: Complete detection packet (robot position + all detections)
+  - `V5SerialPacket`: Wrapped packet with header and CRC32 checksum
+
+### GPS Integration (`V5Position.py`)
+
+Manages communication with the VEX V5 GPS sensor for robot position tracking.
+
+#### `V5GPS` Class
+- **Purpose**: Reads GPS data from V5 Brain via serial connection
+- **Connection**: Automatically detects GPS sensor on USB serial ports
+- **Data**: Robot position (x, y, z), orientation (azimuth, elevation, rotation), and status flags
+- **Filtering**: Uses `LiveFilter` class for position smoothing
+- **Offset Support**: Applies GPS offset to correct for sensor mounting position
+
+#### `Position` Class
+- **Purpose**: Data structure representing robot position and orientation
+- **Fields**: Frame count, status flags, x/y/z coordinates (meters), azimuth/elevation/rotation (degrees)
+- **Serialization**: Converts to binary format for communication with V5 Brain
+
+### 3D Mapping (`V5MapPosition.py`)
+
+Converts 2D camera detections to 3D field coordinates.
+
+#### `MapPosition` Class
+- **Purpose**: Projects detected objects from camera image space to field coordinate space
+- **Process**:
+  1. Uses depth data to determine object distance from camera
+  2. Applies camera intrinsic parameters (focal length: 610.98 pixels)
+  3. Rotates coordinates based on robot orientation (azimuth, elevation, rotation)
+  4. Translates to field coordinates using robot GPS position
+  5. Applies camera offset to account for camera mounting position
+- **Output**: 3D coordinates (x, y, z) in meters, with (0, 0, 0) at field center
+
+### Web Dashboard Server (`V5Web.py`)
+
+Provides HTTP/WebSocket server for the web dashboard.
+
+#### `V5WebData` Class
+- **Purpose**: WebSocket server for real-time data streaming to web dashboard
+- **Port**: 3030 (default)
+- **Endpoints**: 
+  - Camera images (color and depth)
+  - Detection data
+  - System statistics (FPS, temperature, runtime)
+  - Configuration (GPS offset, camera offset, HSV correction)
+- **Offset Management**: Loads and saves offsets from JSON files (`gps_offsets.json`, `camera_offsets.json`, `color_correction.json`)
+- **Live Updates**: Updates offsets in running instances when changed via web dashboard
+
+#### Offset Classes
+- **`GPSOffset`**: GPS sensor position relative to robot center (x, y, heading_offset)
+- **`CameraOffset`**: Camera position relative to GPS sensor (x, y, z, heading_offset, elevation_offset)
+- **`ColorCorrection`**: HSV adjustment values (hue shift, saturation multiplier, value/brightness multiplier)
+
+### Supporting Files
+
+- **`filter.py`**: `LiveFilter` class for smoothing position data (moving average filter)
+- **`labels.txt`**: Object class labels (BallBlue, BallRed)
+- **`common.py`**: NVIDIA-provided utility functions for TensorRT/CUDA operations
+- **`models/pushback_lite.onnx`**: Neural network model for Jetson (ONNX format)
+- **`models/pushback_lite.tflite`**: Neural network model for Raspberry Pi (TensorFlow Lite format)
+- **`assets/`**: Training images showing the visual range the model was trained on
+
+## Key Concepts
+
+### Color Correction (HSV Adjustment)
+
+The Intel RealSense D435 camera can misread colors under certain lighting conditions. The system includes HSV (Hue, Saturation, Value) correction to improve detection accuracy:
+
+- **Hue**: Shifts the color spectrum (useful for color temperature adjustments)
+- **Saturation**: Adjusts color intensity (multiplier, 0-2x range)
+- **Value**: Adjusts brightness (multiplier, 0-2x range)
+
+Color correction can be adjusted:
+- **Live via Web Dashboard**: Changes take effect immediately
+- **Manually via JSON**: Edit `color_correction.json` in the JetsonExample directory
+
+> [!TIP]
+> We recommend tuning HSV values for your specific lighting conditions. The web dashboard provides a convenient interface for real-time adjustment while viewing detection results.
+
+### GPS and Camera Offsets
+
+Offsets define the physical position of sensors relative to your robot's center:
+
+- **GPS Offset**: Position of the GPS sensor relative to robot center (x, y in meters, heading_offset in degrees)
+- **Camera Offset**: Position of the camera relative to the GPS sensor (x, y, z in meters, heading_offset and elevation_offset in degrees)
 
 > [!WARNING]
-> **THE V5 GPS OFFSET IN THE JETSON/RASPBERRY PI WILL NOT AUTOMATICALLY REFLECT TO YOUR BRAIN CODE. YOU HAVE TO MANUALLY ENSURE THE TWO OFFSETS ARE ALIGNED SO YOUR ROBOT POSITION IS THE SAME FOR THE JETSON/RASPBERRY PI AND V5 BRAIN.**
+> **CRITICAL**: GPS offsets configured in the Jetson/Raspberry Pi (via web dashboard or JSON files) do **NOT** automatically sync to your V5 Brain code. You must manually ensure both offsets are identical in both systems for accurate positioning.
 
-To run inference on the camera image to detect VEX PushBack colored balls, we use the Model class in model.py. The Model class relies on three helper programs; model_backend.py contains classes with code for invoking the model based on whether the device uses CUDA or a Coral Edge TPU, common.py is provided by NVIDIA and has some simplified common methods for use on devices with CUDA (such as the Jetson), and data_processsing.py handles much of the array resizing and processing. Our VEX PushBack object model is based off of the YOLOv3 network, you can read more here: https://arxiv.org/pdf/1804.02767.pdf.
+Offset files are stored in the JetsonExample directory:
+- `gps_offsets.json`
+- `camera_offsets.json`
+- `color_correction.json`
 
-The *Processing* class in pushback.py handles a weird quirk of the Intel RealSense D435 camera, under some lighting conditions, the colors of the game objects will be read incorrectly, and the model will be unable to detect the objects accurately. 
-> [!TIP]
-> We recommend tuning the hue, saturation, and value components of the image before running inference on it, this will color correct the RGB image from the RealSense camera to allow the object detection model to process images with greater color accuracy.
->The color correction can be updated live using the Web Dashboard
+Offsets can be configured:
+- **Via Web Dashboard**: Changes apply immediately to running system (stored in JSON files)
+- **Manually via JSON**: Edit the JSON files directly (requires restart to take effect)
 
-You can see below a sample of the rendering the model was trained off of to better understand the range of blue and red colors it will look for in real life. The dataset contains renders at various lighting levels to help the model perform well on different lighting setups. Please note the model performs best when the RealSense camera is mounted at at a height similar to the below images, but should work at most heights.
+### Detection Classes
 
-<img src=assets/training_img_field.jpg width=48%> <img src=assets/training_img_random.jpg width=48%>
-<img src=assets/training_img_goals.jpg width=48%> <img src=assets/training_img_field1.jpg width=48%>
+The system detects two object classes (defined in `labels.txt`):
+- **BallBlue** (Class ID: 0)
+- **BallRed** (Class ID: 1)
 
-**GPS and Intel RealSense Camera Offsets:**
+The AI model was trained on synthetic renderings at various lighting conditions to perform well across different environments. Training images are included in the `assets/` directory for reference.
 
-We handle the offsets in V5Web.py The GPSOffset and CameraOffset classes intialize an empty JSON at first and process and read from an existing JSON file. They are saved to the directory that V5Web.py is in. This should be the source directory where all of your other source files are in (JetsonExample), but the exact path depends on where you cloned the GitHub repository into.
+### Model Performance
 
-You can manually adjust your offsets without having to use the Web Dashboard by changing the values stored in the .JSON files directory. Be careful of units when editing here, but this method should change your respective offsets the next time you start the program using this method.
+The model performs best when:
+- The RealSense camera is mounted at a height similar to the training images (see `assets/` directory)
+- Lighting conditions are reasonable (not extremely dim or bright)
+- Objects are within the camera's field of view
+- HSV color correction is tuned for your environment
 
-If you adjust using the Web Dashboard, V5Web.py already handles updating the V5MapPosition and V5Pos objects with the new offsets live, while the programs are still running. This means you can update the offsets through the dashboard and see the changes on the device instantly. However, they will not reflect into your V5 Brain program, and that must still be updated manually. The reason this is possible, is because when pushback.py instantiates the v5Web object, v5Pos and v5Map must be passed in as parameters, thereby these objects can be called directly within the v5Web.py instance, updating the actual instance of the offset variables within the objects that calculate Robot position and detection positions.
+## System Service Setup (for Building from Source)
+
+If you built the system from source and want to set up the systemd service for auto-start:
+
+1. **Navigate to the Scripts directory**:
+   ```bash
+   cd ~/VAIC_25_26/JetsonExample/Scripts
+   ```
+
+2. **Make scripts executable**:
+   ```bash
+   sudo chmod +x service.sh
+   sudo chmod +x run.sh
+   ```
+
+3. **Install the service**:
+   ```bash
+   sudo bash ./service.sh
+   ```
+
+This will:
+- Create a systemd service file at `/etc/systemd/system/vexai.service`
+- Configure the service to run `pushback.py` on boot
+- Start the service immediately
+- Enable auto-start on future boots
+
+The `run.sh` script handles:
+- Starting the web dashboard server (serves the React app)
+- Setting required environment variables (CUDA paths, Python paths)
+- Running `pushback.py` with proper configuration
+
+## Troubleshooting
+
+### Camera Not Detected
+- Ensure RealSense camera is connected via USB 3.0 port
+- Check camera permissions: `sudo usermod -a -G dialout $USER` (may require logout/login)
+- Verify camera is detected: `rs-enumerate-devices`
+
+### No V5 Brain Detected
+- Check USB connection between device and V5 Brain
+- Ensure V5 Brain is powered on
+- Verify serial port permissions (user should be in `dialout` group)
+- System will continue running even if V5 Brain is not connected (detections still available via web dashboard)
+
+### Poor Detection Accuracy
+- Adjust HSV color correction values via web dashboard
+- Ensure lighting is adequate
+- Check camera height and angle match training conditions
+- Verify camera lens is clean
+
+### GPS Not Detected
+- Ensure GPS sensor is connected to V5 Brain (not directly to Jetson/Raspberry Pi)
+- Verify V5 Brain is connected and powered on
+- System will continue running with GPS disconnected (uses default position)
+
+### Service Won't Start
+- Check service status: `sudo systemctl status vexai`
+- View logs: `sudo journalctl -u vexai -n 50`
+- Verify all files are in correct location
+- Check web dashboard is built (see [JetsonWebDashboard README](../JetsonWebDashboard/README.md))
+
+### Model Engine Issues
+- **Jetson**: If you see "Using an engine plan file across different models" warning, delete `models/pushback_lite.trt` to regenerate
+- **Raspberry Pi**: Ensure Coral Edge TPU is properly connected (USB or M.2)
+
+## File Structure
+
+```
+JetsonExample/
+├── pushback.py              # Main entry point and application orchestration
+├── model.py                 # AI model interface and inference
+├── model_backend.py         # Platform-specific inference backends (CUDA/Coral)
+├── data_processing.py       # YOLOv3 preprocessing and post-processing
+├── common.py                # NVIDIA utility functions for TensorRT
+├── V5Comm.py                # Serial communication with V5 Brain
+├── V5Position.py            # GPS sensor integration
+├── V5MapPosition.py         # 3D coordinate mapping
+├── V5Web.py                 # Web dashboard server
+├── filter.py                # Position filtering utilities
+├── labels.txt               # Object class labels
+├── models/
+│   ├── pushback_lite.onnx   # Neural network model (Jetson)
+│   └── pushback_lite.tflite # Neural network model (Raspberry Pi)
+├── assets/
+│   └── training_img_*.jpg   # Training images for reference
+└── Scripts/
+    ├── service.sh           # Systemd service installation
+    ├── run.sh               # Service startup script
+    ├── power.sh             # Power mode configuration (Jetson)
+    └── clean.sh             # System cleanup utilities
+```
+
+## Next Steps
+
+After understanding how the JetsonExample system works:
+
+1. **Set up Web Dashboard**: Configure monitoring and configuration interface (see [JetsonWebDashboard](../JetsonWebDashboard/README.md))
+2. **Upload V5 Code**: Connect your robot to receive detection data (see [V5Example](../V5Example/ai_demo/README.md))
+3. **Tune Configuration**: Adjust offsets and color correction for your specific robot and environment
+4. **Develop Custom Logic**: Modify or extend the system for your specific needs
+
+## Additional Resources
+
+- [YOLOv3 Paper](https://arxiv.org/pdf/1804.02767.pdf) - Neural network architecture details
+- [Intel RealSense SDK Documentation](https://dev.intelrealsense.com/) - Camera API reference
+- [VEX AI Competition Documentation](https://kb.vex.com/hc/en-us/articles/360049619171-Coding-the-VEX-AI-Robot) - VEX AI system overview

@@ -114,84 +114,28 @@ C++ example project for the VEX V5 Brain demonstrating:
   - VEXcode Pro V5 (for compiling C++ code)
   - VEX AI Robot Link library (included)
 
-## Quick Start
+## Getting Started
 
-### Option 1: Use Pre-built Image (Recommended)
+To get started with the VEX AI Competition system, we recommend exploring the repository's example code in the following order. This sequence builds understanding progressively, from hardware setup through vision processing to robot control integration.
 
-1. **Download SD Card Image**:
-   - [Jetson Nano Image](https://content.vexrobotics.com/V5AI/Images/Jetson/VAIC_25_26_JETSON_080625.img.gz)
-   - [Raspberry Pi 5 Image](https://content.vexrobotics.com/V5AI/Images/Jetson/VAIC_25_26_RPI_080625.img.gz)
+### Recommended Order
 
-2. **Flash Image to SD Card**:
-   - Use [Balena Etcher](https://www.balena.io/etcher) to flash the downloaded image
-   - Requires at least 32GB SD card
+1. **[JetsonImages](./JetsonImages/README.md)** - Hardware platform setup
+2. **[JetsonExample](./JetsonExample/README.md)** - Core vision processing system
+3. **[JetsonWebDashboard](./JetsonWebDashboard/README.md)** - Monitoring and configuration interface
+4. **[V5Example](./V5Example/ai_demo/README.md)** - V5 Brain integration
 
-3. **Boot Device**:
-   - Insert SD card into Jetson Nano/Raspberry Pi
-   - Connect Intel RealSense camera via USB
-   - Connect V5 Brain via USB (for serial communication)
-   - Power on device
+### Why This Order?
 
-4. **Start System**:
-   - The system should auto-start on boot (runs as `vexai` systemd service)
-   - To manually start: `sudo systemctl start vexai`
-   - To stop: `sudo systemctl stop vexai`
+**Start with JetsonImages** because it provides the foundation for everything else. You need a working hardware platform (Jetson Nano or Raspberry Pi 5) with all dependencies installed before you can run any vision processing code. Whether you use a pre-built image or build from source, this step ensures your device is ready.
 
-5. **Access Web Dashboard**:
-   - Configure device as Wi-Fi access point (see [JetsonWebDashboard README](./JetsonWebDashboard/README.md))
-   - Connect to device's Wi-Fi network
-   - Navigate to `http://10.42.0.1:3000/#/` in a web browser
+**Then explore JetsonExample** to understand how the vision system works. This is the core of the AI system - it handles camera capture, AI inference, 3D mapping, and communication with the V5 Brain. Understanding this component is essential because it determines what data is available to your robot and how it's structured.
 
-6. **Upload V5 Code**:
-   - Open `V5Example/ai_demo` in VEXcode Pro V5
-   - Compile and upload to V5 Brain
-   - Robot will automatically connect and request detection data
+**Next, set up JetsonWebDashboard** to enable real-time monitoring and system configuration. While not strictly required for the system to function, the dashboard provides invaluable debugging capabilities and allows you to fine-tune color correction and offsets without restarting the system. It's best to set this up after understanding the vision system, so you know what you're monitoring.
 
-### Option 2: Build from Source
+**Finally, work with V5Example** to integrate AI detections into your robot's autonomous code. This should come last because you need the vision system running and understood before you can effectively use the detection data in your robot's routines. The example code demonstrates the communication protocol and provides helper functions you can build upon.
 
-Follow the detailed instructions in the [JetsonImages](./JetsonImages/README.md) directory:
-- [Jetson Build Instructions](./JetsonImages/BuildImageFromScratch.md)
-- [Raspberry Pi Build Instructions](./JetsonImages/PiInstructions.md)
-
-## Getting Started with Development
-
-### JetsonExample Setup
-
-1. **Navigate to JetsonExample directory**:
-   ```bash
-   cd VAIC_25_26/JetsonExample
-   ```
-
-2. **Install Python dependencies** (if building from source):
-   ```bash
-   python3 -m pip install --upgrade pip
-   pip install pyserial websocket-server Pillow opencv-python numpy
-   # For Jetson: TensorRT packages (pre-installed on image)
-   # For Raspberry Pi: pip install --extra-index-url https://google-coral.github.io/py-repo/ pycoral~=2.0
-   ```
-
-3. **Run the system**:
-   ```bash
-   python3 pushback.py
-   ```
-
-### V5Example Setup
-
-1. **Open in VEXcode Pro V5**:
-   - Launch VEXcode Pro V5
-   - Open `VAIC_25_26/V5Example/ai_demo` project
-
-2. **Configure Robot**:
-   - Update `robot-config.h` with your robot's motor/sensor ports
-   - Adjust GPS offset in code to match your robot's GPS sensor position
-
-3. **Build and Upload**:
-   - Compile the project
-   - Upload to V5 Brain via USB or VEXos Wireless
-
-### Web Dashboard Setup (if building from source)
-
-See detailed instructions in [JetsonWebDashboard/README.md](./JetsonWebDashboard/README.md)
+Each directory contains detailed README files with specific setup instructions, code explanations, and usage examples. Follow the order above to build your understanding progressively, using each example as a foundation for the next.
 
 ## Key Configuration Notes
 
