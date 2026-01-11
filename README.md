@@ -1,17 +1,244 @@
 # The VEX AI Competition (VAIC) System
 
-## [JetsonExample](./JetsonExample/README.md)
+The VEX AI Competition (VAIC) System is a complete computer vision and robotics platform that enables VEX V5 robots to autonomously detect and interact with game objects using AI-powered vision processing. The system combines an Intel RealSense depth camera, an NVIDIA Jetson Nano or Raspberry Pi 5 with Google Coral Edge TPU for AI inference, and a VEX V5 Brain for robot control.
 
-JetsonExample contains the default code that powers the VEX AI system, from processing image data and running the AI model to detect objects for the VEX V5 Brain.
+## Overview
 
-## [JetsonImages](./JetsonImages/README.md)
+This repository contains the complete software stack for the 2025-26 VEX AI Competition (PushBack). The system processes live camera feeds to detect colored balls (red and blue) in real-time, maps their 3D positions on the competition field, and communicates detection data to the VEX V5 Brain via serial communication. The V5 Brain uses this information to autonomously navigate and interact with detected objects.
 
-JetsonImages is where you will find how to get the most up-to-date image of the NVIDIA Jetson Nano and Raspberry Pi 5 and instructions on how to install the SD card image and or building from source.
+### Key Features
 
-## [JetsonWebDashboard](./JetsonWebDashboard/README.md)
+- **Real-time Object Detection**: Uses YOLOv3-based neural networks to detect VEX PushBack game objects (red and blue balls)
+- **3D Spatial Mapping**: Converts 2D camera detections into 3D field coordinates using depth camera data
+- **Dual Platform Support**: Works on both NVIDIA Jetson Nano (CUDA acceleration) and Raspberry Pi 5 with Coral Edge TPU
+- **Web Dashboard**: React-based web interface for real-time monitoring, camera views, detection visualization, and system configuration
+- **GPS Integration**: Combines camera-based detections with V5 GPS sensor data for accurate robot positioning
+- **Serial Communication**: Binary protocol for efficient data transfer between the vision system and V5 Brain
 
-JetsonWebDashboard is where you will find the source code for the VEX AI Web Dashboard that runs on the Jetson Nano/Raspberry Pi.
+## System Architecture
 
-## [V5Example](./V5Example/ai_demo/README.md)
+```
+┌─────────────────┐     ┌──────────────────────┐     ┌──────────────┐
+│  Intel          │────▶│  Jetson Nano/        │────▶│  VEX V5      │
+│  RealSense D435 │     │  Raspberry Pi 5      │     │  Brain       │
+│  Depth Camera   │     │                      │     │              │
+└─────────────────┘     │  • AI Inference      │     │  • Robot     │
+                        │  • Depth Processing  │     │    Control   │
+                        │  • 3D Mapping        │     │  • GPS       │
+                        │  • Serial Comm       │     │    Tracking  │
+                        └──────────────────────┘     └──────────────┘
+                                │
+                                │ WebSocket/HTTP
+                                ▼
+                        ┌─────────────────┐
+                        │  Web Dashboard  │
+                        │  (React App)    │
+                        └─────────────────┘
+```
 
-V5Example contains the `ai_demo` V5 Project which has examples on how to connect with the Jetson Nano/Raspberry Pi and how to interpret and process the data from the board on the V5 Brain
+### How It Works
+
+1. **Camera Capture**: The Intel RealSense D435 camera captures synchronized color (RGB) and depth frames at 640x480 resolution, 30 FPS
+2. **Image Processing**: RGB frames are color-corrected (HSV adjustment) to improve detection accuracy under various lighting conditions
+3. **AI Inference**: Pre-processed images are fed into a YOLOv3-based neural network (ONNX/TFLite format) running on:
+   - **Jetson Nano**: CUDA-accelerated TensorRT backend
+   - **Raspberry Pi 5**: Google Coral Edge TPU backend
+4. **Detection Processing**: Bounding boxes are extracted for detected objects (red/blue balls) with confidence scores
+5. **3D Mapping**: Depth data from RealSense camera is used to project 2D detections into 3D field coordinates (meters from field center)
+6. **Position Fusion**: Robot position from V5 GPS sensor is combined with camera offset and GPS offset to calculate absolute field positions
+7. **Serial Communication**: Detection data (including robot position and all detected objects) is packaged into a binary protocol and sent to V5 Brain via USB serial
+8. **Robot Control**: V5 Brain receives detection data and uses it for autonomous navigation and object interaction
+
+## Components
+
+### [JetsonExample](./JetsonExample/README.md)
+
+The core Python application that runs on the Jetson Nano or Raspberry Pi 5. This component handles:
+- **Camera Management** (`Camera` class): Initializes and manages Intel RealSense pipeline
+- **AI Inference** (`Model` class): Loads and runs YOLOv3 neural network inference
+- **Image Processing** (`Processing` class): Color correction, depth alignment, and 3D projection
+- **Serial Communication** (`V5Comm.py`): Binary protocol implementation for V5 Brain communication
+- **GPS Integration** (`V5Position.py`): V5 GPS sensor serial communication and position tracking
+- **3D Mapping** (`V5MapPosition.py`): Projects 2D detections to 3D field coordinates
+- **Web Server** (`V5Web.py`): HTTP/WebSocket server for the web dashboard
+
+**Main Entry Point**: `pushback.py` - Coordinates all components and runs the main processing loop
+
+### [JetsonImages](./JetsonImages/README.md)
+
+Pre-built SD card images and build-from-source instructions for setting up the hardware platform:
+- **Pre-built Images**: Ready-to-use images for Jetson Nano and Raspberry Pi 5 (password: `password`)
+- **Jetson Build Instructions**: Step-by-step guide for building Jetson image from scratch
+- **Raspberry Pi Instructions**: Guide for setting up Raspberry Pi 5 with Coral Edge TPU from scratch
+
+### [JetsonWebDashboard](./JetsonWebDashboard/README.md)
+
+React-based web application that provides a real-time monitoring and configuration interface:
+- **Live Camera View**: Stream color and depth camera feeds
+- **Field Visualization**: Interactive 2D top-down view of the field with detected objects and robot position
+- **Detection Overlay**: Real-time bounding boxes and confidence scores
+- **System Statistics**: CPU/GPU usage, FPS, detection counts
+- **Configuration**: Adjust HSV color correction, GPS offset, and camera offset in real-time
+- **Access Point Setup**: Instructions for configuring Jetson/Raspberry Pi as a Wi-Fi hotspot
+
+### [V5Example](./V5Example/ai_demo/README.md)
+
+C++ example project for the VEX V5 Brain demonstrating:
+- **Serial Communication** (`ai_jetson.cpp`): Receiving and parsing detection data from Jetson/Raspberry Pi
+- **Robot Control** (`ai_functions.cpp`): Autonomous navigation and object interaction logic
+- **Robot-to-Robot Link** (`ai_robot_link.cpp`): Multi-robot coordination via VEXLink
+- **Dashboard Display** (`dashboard.cpp`): Status information display on Brain screen
+
+**Example Behavior**: Searches for blue balls, drives to them, intakes them, then scores in the nearest goal end.
+
+## Prerequisites
+
+### Hardware Requirements
+- **Vision System**: 
+  - NVIDIA Jetson Nano Developer Kit OR Raspberry Pi 5 with Google Coral Edge TPU USB Accelerator
+  - Intel RealSense D435 depth camera
+  - SD card (minimum 32GB)
+  - USB Wi-Fi adapter (for access point functionality)
+- **Robot System**:
+  - VEX V5 Brain
+  - VEX GPS Sensor (v1.0 or v2.0)
+  - USB-A to Micro-USB cable (for serial communication)
+
+### Software Requirements
+- **On Jetson Nano/Raspberry Pi**:
+  - Ubuntu-based OS (pre-installed on provided images)
+  - Python 3.6+ (Jetson) or Python 3.9 (Raspberry Pi with pyenv)
+  - Intel RealSense SDK (librealsense)
+  - CUDA/TensorRT (Jetson) OR PyCoral/Coral Runtime (Raspberry Pi)
+- **On V5 Brain**:
+  - VEXcode Pro V5 (for compiling C++ code)
+  - VEX AI Robot Link library (included)
+
+## Quick Start
+
+### Option 1: Use Pre-built Image (Recommended)
+
+1. **Download SD Card Image**:
+   - [Jetson Nano Image](https://content.vexrobotics.com/V5AI/Images/Jetson/VAIC_25_26_JETSON_080625.img.gz)
+   - [Raspberry Pi 5 Image](https://content.vexrobotics.com/V5AI/Images/Jetson/VAIC_25_26_RPI_080625.img.gz)
+
+2. **Flash Image to SD Card**:
+   - Use [Balena Etcher](https://www.balena.io/etcher) to flash the downloaded image
+   - Requires at least 32GB SD card
+
+3. **Boot Device**:
+   - Insert SD card into Jetson Nano/Raspberry Pi
+   - Connect Intel RealSense camera via USB
+   - Connect V5 Brain via USB (for serial communication)
+   - Power on device
+
+4. **Start System**:
+   - The system should auto-start on boot (runs as `vexai` systemd service)
+   - To manually start: `sudo systemctl start vexai`
+   - To stop: `sudo systemctl stop vexai`
+
+5. **Access Web Dashboard**:
+   - Configure device as Wi-Fi access point (see [JetsonWebDashboard README](./JetsonWebDashboard/README.md))
+   - Connect to device's Wi-Fi network
+   - Navigate to `http://10.42.0.1:3000/#/` in a web browser
+
+6. **Upload V5 Code**:
+   - Open `V5Example/ai_demo` in VEXcode Pro V5
+   - Compile and upload to V5 Brain
+   - Robot will automatically connect and request detection data
+
+### Option 2: Build from Source
+
+Follow the detailed instructions in the [JetsonImages](./JetsonImages/README.md) directory:
+- [Jetson Build Instructions](./JetsonImages/BuildImageFromScratch.md)
+- [Raspberry Pi Build Instructions](./JetsonImages/PiInstructions.md)
+
+## Getting Started with Development
+
+### JetsonExample Setup
+
+1. **Navigate to JetsonExample directory**:
+   ```bash
+   cd VAIC_25_26/JetsonExample
+   ```
+
+2. **Install Python dependencies** (if building from source):
+   ```bash
+   python3 -m pip install --upgrade pip
+   pip install pyserial websocket-server Pillow opencv-python numpy
+   # For Jetson: TensorRT packages (pre-installed on image)
+   # For Raspberry Pi: pip install --extra-index-url https://google-coral.github.io/py-repo/ pycoral~=2.0
+   ```
+
+3. **Run the system**:
+   ```bash
+   python3 pushback.py
+   ```
+
+### V5Example Setup
+
+1. **Open in VEXcode Pro V5**:
+   - Launch VEXcode Pro V5
+   - Open `VAIC_25_26/V5Example/ai_demo` project
+
+2. **Configure Robot**:
+   - Update `robot-config.h` with your robot's motor/sensor ports
+   - Adjust GPS offset in code to match your robot's GPS sensor position
+
+3. **Build and Upload**:
+   - Compile the project
+   - Upload to V5 Brain via USB or VEXos Wireless
+
+### Web Dashboard Setup (if building from source)
+
+See detailed instructions in [JetsonWebDashboard/README.md](./JetsonWebDashboard/README.md)
+
+## Key Configuration Notes
+
+> **⚠️ WARNING**: The GPS offset configured in the Jetson/Raspberry Pi web dashboard does **NOT** automatically sync to your V5 Brain code. You must manually ensure both offsets are aligned so robot positions match between the vision system and V5 Brain.
+
+- **GPS Offset**: Defines the position of the GPS sensor relative to the robot's center
+- **Camera Offset**: Defines the position of the camera relative to the GPS sensor
+- **HSV Correction**: Adjusts hue, saturation, and value to improve color detection accuracy under different lighting conditions
+
+## Detection Classes
+
+The system detects the following objects (defined in `JetsonExample/labels.txt`):
+- `BallBlue` (Class ID: 0)
+- `BallRed` (Class ID: 1)
+
+## Data Communication Protocol
+
+The system uses a binary serial protocol for efficient communication:
+
+- **Packet Structure**: 12-byte header (sync bytes, length, type, CRC32) + payload
+- **Data Format**: Little-endian binary encoding
+- **Update Rate**: V5 Brain requests data as needed (polling mechanism)
+- **Coordinates**: Field coordinates in meters, with (0, 0) at field center
+
+For detailed protocol specification, see the data structures in:
+- `JetsonExample/V5Comm.py` (Python implementation)
+- `V5Example/ai_demo/include/ai_jetson.h` (C++ implementation)
+
+## Troubleshooting
+
+- **No V5 Brain detected**: Check USB connection and ensure V5 Brain is powered on
+- **Poor detection accuracy**: Adjust HSV color correction values in web dashboard
+- **GPS position mismatch**: Verify GPS and camera offsets are set correctly
+- **Camera not detected**: Ensure RealSense camera is properly connected via USB 3.0
+- **Web dashboard not accessible**: Check Wi-Fi access point configuration
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+
+## Additional Resources
+
+- [VEX AI Competition Documentation](https://kb.vex.com/hc/en-us/articles/360049619171-Coding-the-VEX-AI-Robot)
+- [YOLOv3 Paper](https://arxiv.org/pdf/1804.02767.pdf)
+- [Intel RealSense Documentation](https://dev.intelrealsense.com/)
+- [NVIDIA Jetson Developer Center](https://developer.nvidia.com/embedded/jetson-nano-developer-kit)
+
+## Contributing
+
+This is the official VEX AI Competition system for 2025-26. For support and questions, refer to the [VEX AI Competition documentation](https://kb.vex.com/hc/en-us/sections/4409408713623-VEX-AI-Competition).
